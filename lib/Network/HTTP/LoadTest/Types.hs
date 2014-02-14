@@ -78,7 +78,7 @@ data Config = Config {
     , numRequests :: Int
     , requestsPerSecond :: Double
     , timeout :: Double
-    , request :: Req
+    , requests :: [Req]
     } deriving (Show, Typeable)
 
 instance ToJSON Config where
@@ -87,7 +87,7 @@ instance ToJSON Config where
                         , "numRequests" .= numRequests
                         , "requestsPerSecond" .= requestsPerSecond
                         , "timeout" .= timeout
-                        , "request" .= request
+                        , "request" .= requests
                         ]
 
 instance FromJSON Config where
@@ -109,7 +109,7 @@ defaultConfig = Config {
               , numRequests = 1
               , requestsPerSecond = 0
               , timeout = 60
-              , request = emptyReq
+              , requests = [emptyReq]
               }
 
 data Event =

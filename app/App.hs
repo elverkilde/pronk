@@ -7,7 +7,7 @@ import Control.Applicative ((<$>))
 import Control.Concurrent.MVar
 import Control.DeepSeq (rnf)
 import Control.Exception (bracket, catch, evaluate, finally)
-import Control.Monad (forM_, unless)
+import Control.Monad (forM_, unless, liftM)
 import Control.Monad.Trans.Resource (ResourceT)
 import Data.Aeson ((.=), encode, object)
 import Data.Char (toLower)
@@ -47,6 +47,8 @@ data Args = Args {
     , from_file :: Maybe FilePath
     , literal :: Maybe String
 
+    , url_file :: Maybe FilePath
+
     , bootstrap :: Bool
     , dump_events :: Maybe FilePath
     , output :: Maybe FilePath
@@ -80,6 +82,11 @@ defaultArgs = Args {
                 &= help "Use given text as request body"
 
               -- --------------------------------------------------
+
+              , url_file = def &= typ "FILE"
+                &= help "Read urls from file"
+
+              -- --------------------------------------------------
               , bootstrap = def
                 &= groupname "Analysis of results"
                 &= help "Statistically robust analysis of results"
@@ -95,21 +102,21 @@ defaultArgs = Args {
                 &= summary ("Pronk " ++ pronk_version ++
                             " - a modern HTTP load tester")
 
-fromArgs :: Args -> E.Request (ResourceT IO) -> LoadTest.Config
-fromArgs Args{..} req =
-    LoadTest.Config {
-      LoadTest.concurrency = concurrency
+fromArgs :: Args -> [E.Request (ResourceT IO)] -> LoadTest.Config
+fromArgs Args{..} reqs =
+  LoadTest.Config {
+    LoadTest.concurrency = concurrency
     , LoadTest.numRequests = num_requests
     , LoadTest.requestsPerSecond = requests_per_second
     , LoadTest.timeout = timeout
-    , LoadTest.request = Req req
+    , LoadTest.requests = map Req reqs
     }
 
 main :: IO ()
 main = withSocketsDo $ do
   as@Args{..} <- cmdArgs $ defaultArgs &= program "pronk"
   validateArgs as
-  cfg <- fromArgs as <$> createRequest as
+  cfg <- fromArgs as <$> createRequests as
   (run,time) <- timed "tested" $ LoadTest.run cfg
   case run of
     Left [NetworkError err] -> fatal (show err)
@@ -158,9 +165,11 @@ validateArgs Args{..} = do
   forM_ problems $ hPutStrLn stderr . ("Error: " ++)
   unless (null problems) $ exitWith (ExitFailure 1)
 
-createRequest :: Args -> IO (E.Request (ResourceT IO))
-createRequest Args{..} = do
-  req0 <- E.parseUrl url `catch` \(e::E.HttpException) ->
+createRequests :: Args -> IO [(E.Request (ResourceT IO))]
+createRequests Args{..} = do
+  urls <- maybe (return [url]) (liftM lines) (liftM readFile url_file)
+  mapM (\url' -> do
+  req0 <- E.parseUrl url' `catch` \(e::E.HttpException) ->
           fatal $ "could not parse URL - " ++
                 case e of
                   E.InvalidUrlException _ s -> map toLower s
@@ -184,7 +193,7 @@ createRequest Args{..} = do
                  }
     _ -> do
       hPutStrLn stderr "Error: --literal and --from-file are mutually exclusive"
-      exitWith (ExitFailure 1)
+      exitWith (ExitFailure 1)) urls
 
 timed :: Text -> IO a -> IO (a,Double)
 timed desc act = do

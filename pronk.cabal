@@ -71,7 +71,8 @@ library
     unix-compat >= 0.3.0.2,
     unordered-containers >= 0.1.4.0,
     vector,
-    vector-algorithms
+    vector-algorithms,
+    random
 
 executable pronk
   hs-source-dirs: app

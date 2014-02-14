@@ -29,6 +29,7 @@ import qualified System.Timeout.Lifted as T
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad.Trans.Resource (ResourceT)
 import qualified Network.HTTP.Types as H
+import System.Random
 
 run :: Config -> IO (Either [NetworkError] (V.Vector Summary))
 run cfg@Config{..} = do
@@ -67,8 +68,10 @@ client Config{..} mgr interval = loop 0 []
         liftIO . threadDelay . truncate $ (interval - elapsed) * 1000000
       loop (n+1) (s:acc)
     issueRequest :: ResourceT IO (Response L.ByteString)
-    issueRequest = httpLbs (clear $ fromReq request) mgr
-                   `catch` (throwIO . NetworkError)
+    issueRequest = do
+      request <- liftIO $ pick requests
+      httpLbs (clear $ fromReq request) mgr
+      `catch` (throwIO . NetworkError)
       where clear r = r { checkStatus = \_ _ _ -> Nothing
                         , responseTimeout = Nothing
                         }
@@ -80,6 +83,9 @@ client Config{..} mgr interval = loop 0 []
       case maybeResp of
         Just resp -> return (respEvent resp)
         _         -> return Timeout
+
+pick :: [a] -> IO a
+pick xs = randomRIO (0, (length xs - 1)) >>= return . (xs !!)
 
 respEvent :: Response L.ByteString -> Event
 respEvent resp =
